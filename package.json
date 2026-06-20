@@ -1,0 +1,35 @@
+{
+  "name": "agent-watchdog",
+  "version": "0.1.0",
+  "description": "Runtime loop and deadlock detection for multi-agent AI systems",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "example:debate": "ts-node examples/debate.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "multi-agent",
+    "langgraph",
+    "watchdog",
+    "loop-detection",
+    "reliability"
+  ],
+  "author": "Shuopeng Zhou",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/anthropic": "^1.5.0",
+    "@langchain/core": "^1.2.0",
+    "@langchain/langgraph": "^1.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
