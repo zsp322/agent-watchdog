@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deploy Tracker — 不恐高</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f7f5f0;
+      --surface: #ffffff;
+      --border: #e4ddd0;
+      --accent: #3b5bdb;
+      --accent-dim: #e0e7ff;
+      --text: #1c1917;
+      --muted: #78716c;
+      --red: #dc2626;
+      --yellow: #d97706;
+      --blue: #2563eb;
+      --purple: #7c3aed;
+    }
+
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px; min-height: 100vh;
+    }
+
+    header {
+      padding: 16px 28px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 14px;
+    }
+    header h1 { font-size: 17px; font-weight: 600; }
+    header .sub { color: var(--muted); font-size: 12px; }
+    header .actions { margin-left: auto; display: flex; gap: 8px; }
+
+    .layout { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 57px); }
+
+    /* ─── Sidebar ─── */
+    .sidebar {
+      border-right: 1px solid var(--border); padding: 20px;
+      display: flex; flex-direction: column; gap: 20px;
+      overflow-y: auto; max-height: calc(100vh - 57px);
+    }
+    .section-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--muted); font-weight: 600;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    input, select {
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 7px 10px;
+      font-size: 13px; width: 100%; transition: border-color 0.15s;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+    .btn {
+      background: var(--accent); color: #0f1117; border: none;
+      border-radius: 6px; padding: 9px 14px; font-size: 13px;
+      font-weight: 600; cursor: pointer; width: 100%; transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-ghost {
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border); font-weight: 400;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--text); opacity: 1; }
+    .btn-sm { padding: 5px 12px; font-size: 12px; width: auto; }
+
+    /* ─── Summary panel ─── */
+    .summary-panel {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px 22px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .summary-top {
+      display: flex; align-items: flex-end; gap: 0;
+    }
+    .summary-kpi {
+      display: flex; flex-direction: column; gap: 3px; flex: 1;
+    }
+    .summary-kpi .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .summary-kpi .val { font-size: 22px; font-weight: 800; line-height: 1; }
+    .summary-kpi .val.accent { color: var(--accent); }
+    .summary-kpi .val.muted  { color: var(--muted); }
+    .summary-kpi .val.yellow { color: var(--yellow); }
+    .summary-divider { width: 1px; height: 36px; background: var(--border); flex-shrink: 0; margin: 0 20px; align-self: center; }
+    .summary-pct { font-size: 36px; font-weight: 900; color: var(--accent); line-height: 1; margin-left: auto; }
+    .summary-progress-wrap { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .summary-progress-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #3b5bdb, #6b8ef5); transition: width 0.4s; }
+    /* per-account row */
+    .summary-accounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .acct-block {
+      border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .acct-block .ab-head { display: flex; justify-content: space-between; align-items: baseline; }
+    .acct-block .ab-name { font-size: 12px; font-weight: 700; }
+    .acct-block .ab-pct  { font-size: 11px; font-weight: 700; }
+    .acct-block .ab-bar-wrap { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .acct-block .ab-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
+    .acct-block .ab-nums { display: flex; justify-content: space-between; font-size: 11px; }
+    .acct-block .ab-nums .done { font-weight: 700; }
+    .acct-block .ab-nums .target { color: var(--muted); }
+    /* insight note */
+    .insight-note {
+      font-size: 12px; color: var(--muted); line-height: 1.5;
+      padding: 8px 12px; border-left: 2px solid var(--border); margin-top: 2px;
+    }
+
+    /* ─── Main ─── */
+    .main {
+      padding: 22px 28px; display: flex; flex-direction: column;
+      gap: 20px; overflow-y: auto; max-height: calc(100vh - 57px);
+    }
+
+
+    /* ─── Projection ─── */
+    .proj-panel {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 20px;
+    }
+    .proj-header { display: flex; justify-content: space-between; align-items: center; }
+    .proj-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .proj-card {
+      border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+    }
+    .proj-card .pc-name { font-size: 11px; font-weight: 700; margin-bottom:6px; }
+    .proj-card .pc-row  { display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; }
+    .proj-card .pc-row .lbl { color: var(--muted); }
+    .proj-card .pc-row .val { font-weight: 600; }
+    .proj-card .pc-done { font-size: 11px; color: var(--accent); font-weight: 700; margin-top: 6px; }
+    .proj-hint { font-size: 12px; color: var(--muted); text-align: center; padding: 20px 0; }
+
+    /* ─── Tabs ─── */
+    .tab-nav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+    .tab-btn {
+      background: none; border: none; color: var(--muted); font-size: 13px;
+      padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent;
+      margin-bottom: -1px; transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+    /* ─── Projection ─── */
+    .proj-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .proj-card { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+    .proj-card .pc-name { font-size: 12px; font-weight: 700; margin-bottom: 10px; }
+    .proj-card .pc-row { display: flex; justify-content: space-between; font-size: 11px; margin-top: 5px; }
+    .proj-card .pc-row .lbl { color: var(--muted); }
+    .proj-card .pc-row .val { font-weight: 600; }
+    .proj-card .pc-eta { font-size: 13px; font-weight: 800; color: var(--accent); margin-top: 10px; }
+    .proj-card .pc-done { font-size: 12px; color: var(--accent); font-weight: 700; margin-top: 8px; }
+    .proj-hint { font-size: 12px; color: var(--muted); text-align: center; padding: 30px 0; }
+
+    /* ─── Table ─── */
+    .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .table-header {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 9px 16px; text-align: left; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--border); }
+    td { padding: 10px 16px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(0,0,0,0.02); }
+
+    .delete-btn {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 15px; padding: 2px 5px; border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.15s;
+    }
+    tr:hover .delete-btn { opacity: 1; }
+    .delete-btn:hover { color: var(--red); }
+
+    .empty-state { text-align: center; padding: 50px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+    .empty-state strong { display: block; font-size: 15px; color: var(--text); margin-bottom: 6px; }
+
+    .goal-toggle {
+      width: 100%; background: transparent; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 6px; padding: 6px 10px;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+      font-weight: 600; cursor: pointer; display: flex; justify-content: space-between;
+      align-items: center; transition: border-color 0.15s, color 0.15s;
+    }
+    .goal-toggle:hover { border-color: var(--accent); color: var(--text); }
+    .filter-tabs { display: flex; gap: 5px; flex-wrap: wrap; }
+    .tab { padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; transition: all 0.15s; }
+    .tab.active, .tab:hover { color: var(--text); border-color: var(--accent); }
+    .tab.active { font-weight: 600; }
+
+    /* ─── Import overlay ─── */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100; backdrop-filter: blur(4px);
+    }
+    .overlay.hidden { display: none; }
+    .overlay-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 36px 44px; text-align: center; max-width: 400px;
+    }
+    .overlay-box h2 { font-size: 17px; margin-bottom: 10px; }
+    .overlay-box p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 22px; }
+    .overlay-btns { display: flex; gap: 10px; justify-content: center; }
+  </style>
+</head>
+<body>
+
+<!-- Import overlay -->
+<div class="overlay hidden" id="import-overlay">
+  <div class="overlay-box">
+    <h2>📂 导入数据</h2>
+    <p>没有检测到本地缓存。<br>选择之前导出的 <code>deploy_tracker_data.json</code> 继续，<br>或直接开始录入新记录。</p>
+    <div class="overlay-btns">
+      <button class="btn" onclick="triggerImport()" style="width:auto;padding:10px 22px;">选择 JSON 文件</button>
+      <button class="btn btn-ghost" onclick="closeOverlay()" style="width:auto;padding:10px 18px;">从头开始</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="json-input" accept=".json" style="display:none" onchange="importJSON(this)">
+
+<header>
+  <h1>📈 Deploy Tracker</h1>
+  <span class="sub">不恐高 — 每次买入都是均价的一部分</span>
+  <div class="actions">
+    <button class="btn btn-ghost btn-sm" onclick="exportJSON()">导出 JSON</button>
+    <button class="btn btn-ghost btn-sm" onclick="triggerImport()">导入 JSON</button>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <!-- Add form -->
+    <div>
+      <div class="section-label" style="margin-bottom:12px;">记录买入</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="form-row">
+          <div class="form-group">
+            <label>标的</label>
+            <input id="f-ticker" type="text" placeholder="VOO" style="text-transform:uppercase">
+          </div>
+          <div class="form-group">
+            <label>账户</label>
+            <select id="f-account">
+              <option value="Roth IRA">Roth IRA</option>
+              <option value="Traditional IRA">Traditional IRA</option>
+              <option value="HSA">HSA</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>日期</label>
+            <input id="f-date" type="date">
+          </div>
+          <div class="form-group">
+            <label>股数</label>
+            <input id="f-shares" type="number" placeholder="10" min="0.001" step="any">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>买入价格（$/股）</label>
+          <input id="f-price" type="number" placeholder="683.47" min="0" step="any">
+        </div>
+        <div class="form-group">
+          <label>备注（可选）</label>
+          <input id="f-note" type="text" placeholder="IRA 定投">
+        </div>
+        <button class="btn" onclick="addTransaction()">+ 添加买入记录</button>
+      </div>
+    </div>
+
+    <!-- Goal settings (collapsible) -->
+    <div>
+      <button class="goal-toggle" onclick="toggleGoalSettings()">
+        <span>目标设置</span><span id="goal-toggle-arrow">›</span>
+      </button>
+      <div id="goal-settings-panel" style="display:none;margin-top:10px;flex-direction:column;gap:8px;">
+        <div id="g-acct-inputs" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <button class="btn" style="margin-top:2px;" onclick="saveGoalSettings()">保存</button>
+      </div>
+    </div>
+
+    <!-- Ticker summary -->
+    <div>
+      <div class="section-label" style="margin-bottom:10px;">持仓汇总</div>
+      <div class="ticker-cards" id="ticker-cards">
+        <div style="color:var(--muted);font-size:12px;">暂无记录</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <!-- Tab nav -->
+    <div class="tab-nav">
+      <button class="tab-btn active" id="tab-records-btn" onclick="switchTab('records')">建仓记录</button>
+      <button class="tab-btn" id="tab-proj-btn" onclick="switchTab('proj')">建仓预期</button>
+    </div>
+
+    <!-- Tab: records -->
+    <div id="tab-records">
+      <!-- Summary panel -->
+      <div class="summary-panel">
+        <div class="summary-top">
+          <div class="summary-kpi">
+            <div class="lbl">已 Deploy</div>
+            <div class="val accent" id="sum-deployed">$0</div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-kpi">
+            <div class="lbl">目标</div>
+            <div class="val" id="sum-target">—</div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-kpi">
+            <div class="lbl">剩余</div>
+            <div class="val muted" id="sum-remain">—</div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-kpi">
+            <div class="lbl">最近 30 天</div>
+            <div class="val yellow" id="sum-recent">$0</div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-kpi">
+            <div class="lbl">总笔数</div>
+            <div class="val" id="sum-count">0</div>
+          </div>
+          <div class="summary-pct" id="sum-pct">0%</div>
+        </div>
+        <div class="summary-progress-wrap">
+          <div class="summary-progress-fill" id="sum-fill" style="width:0%"></div>
+        </div>
+        <div class="summary-accounts" id="summary-accounts"></div>
+        <div class="insight-note" id="ins-note">添加第一笔记录，查看买入价格与均价的关系。</div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-wrap" style="margin-top:20px;">
+        <div class="table-header">
+          <span id="table-title">所有记录</span>
+          <div class="filter-tabs" id="acct-tabs" style="gap:5px;"></div>
+        </div>
+        <div id="table-body">
+          <div class="empty-state">
+            <strong>还没有记录</strong>
+            在左侧填写第一笔买入记录<br>数据保存在本地浏览器，刷新不丢失
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: projection -->
+    <div id="tab-proj" style="display:none;">
+      <div class="summary-panel">
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px;">
+          <div class="form-group" style="flex:0 0 auto;">
+            <label>当前年龄</label>
+            <input id="proj-age" type="number" min="1" max="100" placeholder="28" style="width:90px;" oninput="renderProjection()">
+          </div>
+          <div class="form-group" style="flex:0 0 auto;">
+            <label>预期年化收益率 (%)</label>
+            <input id="proj-rate" type="number" min="0" max="30" step="0.5" placeholder="8" style="width:90px;" oninput="renderProjection()">
+          </div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.6;padding-bottom:2px;">
+            基于当前已投入本金，按复利计算<br>到各年龄节点的预期价值
+          </div>
+        </div>
+        <div id="proj-body"></div>
+        <div style="position:relative;height:300px;margin-top:16px;">
+          <canvas id="proj-chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ─── Storage ─────────────────────────────────────────────
+const TX_KEY     = 'deploy_tracker_v1';
+const GOALS_KEY  = 'deploy_tracker_goals_v1';
+const PRICES_KEY = 'deploy_tracker_prices_v1';
+
+let transactions = [];
+let goals = {
+  overall: 250000,
+  accounts: [
+    { name: 'Roth IRA',        target: 100000, initialDeployed: 0, color: '#3b5bdb' },
+    { name: 'Traditional IRA', target: 136000, initialDeployed: 0, color: '#60a5fa' },
+    { name: 'HSA',             target:   5000, initialDeployed: 0, color: '#a78bfa' },
+  ]
+};
+let currentPrices = {}; // { VOO: 485.50, ... }
+
+let activeTicker = 'ALL';
+let activeAccount = 'ALL';
+
+function load() {
+  try { transactions = JSON.parse(localStorage.getItem(TX_KEY)) || []; }
+  catch { transactions = []; }
+  try {
+    const g = JSON.parse(localStorage.getItem(GOALS_KEY));
+    if (g) goals = g;
+  } catch {}
+  try {
+    const p = JSON.parse(localStorage.getItem(PRICES_KEY));
+    if (p) currentPrices = p;
+  } catch {}
+  if (!transactions.length) {
+    document.getElementById('import-overlay').classList.remove('hidden');
+  }
+}
+
+function save() {
+  localStorage.setItem(TX_KEY,    JSON.stringify(transactions));
+  localStorage.setItem(GOALS_KEY, JSON.stringify(goals));
+}
+
+function savePrices() {
+  localStorage.setItem(PRICES_KEY, JSON.stringify(currentPrices));
+}
+
+// ─── Helpers ─────────────────────────────────────────────
+function uid()       { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function fmt$(n)     { return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtShares(n){ return n % 1 === 0 ? n.toString() : n.toFixed(4).replace(/0+$/, ''); }
+function tickers()   { return [...new Set(transactions.map(t => t.ticker))].sort(); }
+function accounts()  { return [...new Set(transactions.map(t => t.account || 'Unknown'))].sort(); }
+
+function withRunningAvg(txs) {
+  let totalShares = 0, totalCost = 0;
+  return txs.map(t => {
+    totalShares += t.shares;
+    totalCost   += t.shares * t.price;
+    return { ...t, runningAvg: totalCost / totalShares, totalShares, totalCost };
+  });
+}
+
+function tickerSummary(ticker) {
+  const txs = transactions.filter(t => t.ticker === ticker).sort((a,b) => a.date.localeCompare(b.date));
+  if (!txs.length) return null;
+  const enriched = withRunningAvg(txs);
+  const last = enriched[enriched.length - 1];
+  return { ticker, shares: last.totalShares, avgCost: last.runningAvg, totalDeployed: last.totalCost, txCount: txs.length };
+}
+
+function deployedByAccount(name) {
+  return transactions.filter(t => (t.account || 'Unknown') === name).reduce((s,t) => s + t.shares * t.price, 0);
+}
+
+function totalDeployed() {
+  const trackedTotal = transactions.reduce((s,t) => s + t.shares * t.price, 0);
+  const initialTotal = goals.accounts.reduce((s,a) => s + (a.initialDeployed || 0), 0);
+  // avoid double-counting: initialDeployed is pre-tracker; tracked is new
+  // total = initialDeployed (pre-tracker) + tracked transactions
+  // But Roth's $100K is all initialDeployed; IRA and Brokerage have no initialDeployed
+  return trackedTotal + initialTotal;
+}
+
+// ─── Goal settings ────────────────────────────────────────
+function toggleGoalSettings() {
+  const panel = document.getElementById('goal-settings-panel');
+  const arrow = document.getElementById('goal-toggle-arrow');
+  const open  = panel.style.display === 'flex';
+  panel.style.display = open ? 'none' : 'flex';
+  arrow.textContent   = open ? '›' : '⌄';
+}
+
+function renderGoalInputs() {
+  const el = document.getElementById('g-acct-inputs');
+  el.innerHTML = goals.accounts.map((a, i) => `
+    <div class="form-group">
+      <label>${a.name}</label>
+      <input type="number" min="0" step="1000" value="${a.target}" data-acct-idx="${i}">
+    </div>`).join('');
+}
+
+function saveGoalSettings() {
+  document.querySelectorAll('#g-acct-inputs input[data-acct-idx]').forEach(inp => {
+    const i = parseInt(inp.dataset.acctIdx);
+    const val = parseFloat(inp.value);
+    if (val > 0) goals.accounts[i].target = val;
+  });
+  goals.overall = goals.accounts.reduce((s, a) => s + a.target, 0);
+  save();
+  render();
+}
+
+// ─── Add / Delete ─────────────────────────────────────────
+function addTransaction() {
+  const ticker  = document.getElementById('f-ticker').value.trim().toUpperCase();
+  const account = document.getElementById('f-account').value;
+  const date    = document.getElementById('f-date').value;
+  const shares  = parseFloat(document.getElementById('f-shares').value);
+  const price   = parseFloat(document.getElementById('f-price').value);
+  const note    = document.getElementById('f-note').value.trim();
+
+  if (!ticker)              { alert('请填写标的'); return; }
+  if (!date)                { alert('请选择日期'); return; }
+  if (!shares || shares<=0) { alert('请填写股数'); return; }
+  if (!price  || price<=0)  { alert('请填写价格'); return; }
+
+  transactions.push({ id: uid(), ticker, account, date, shares, price, note });
+  save();
+  render();
+
+  document.getElementById('f-shares').value = '';
+  document.getElementById('f-price').value  = '';
+  document.getElementById('f-note').value   = '';
+}
+
+function deleteTransaction(id) {
+  transactions = transactions.filter(t => t.id !== id);
+  save();
+  render();
+}
+
+// ─── Filter state ─────────────────────────────────────────
+function setTicker(ticker) {
+  activeTicker = ticker === activeTicker ? 'ALL' : ticker;
+  render();
+}
+function setAccount(acct) {
+  activeAccount = acct === activeAccount ? 'ALL' : acct;
+  render();
+}
+
+// ─── Overlay / JSON ──────────────────────────────────────
+function closeOverlay()  { document.getElementById('import-overlay').classList.add('hidden'); }
+function triggerImport() { document.getElementById('json-input').click(); }
+
+function exportJSON() {
+  const payload = { transactions, goals };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'deploy_tracker_data.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importJSON(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      // support both formats: bare array (old) or { transactions, goals }
+      if (Array.isArray(data)) {
+        transactions = data;
+      } else if (data.transactions) {
+        transactions = data.transactions;
+        if (data.goals) goals = data.goals;
+      } else {
+        throw new Error('unknown format');
+      }
+      save();
+      closeOverlay();
+      render();
+    } catch {
+      alert('JSON 格式有误，请选择之前导出的 deploy_tracker_data.json');
+    }
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
+// ─── Tab ─────────────────────────────────────────────────
+let activeTab = 'records';
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('tab-records').style.display = tab === 'records' ? 'flex' : 'none';
+  document.getElementById('tab-records').style.flexDirection = 'column';
+  document.getElementById('tab-proj').style.display    = tab === 'proj'    ? 'block' : 'none';
+  document.getElementById('tab-records-btn').classList.toggle('active', tab === 'records');
+  document.getElementById('tab-proj-btn').classList.toggle('active',    tab === 'proj');
+  if (tab === 'proj') renderProjection();
+}
+
+// ─── Projection ──────────────────────────────────────────
+let projChart = null;
+
+function renderProjection() {
+  const el   = document.getElementById('proj-body');
+  const age  = parseInt(document.getElementById('proj-age').value);
+  const rate = parseFloat(document.getElementById('proj-rate').value);
+
+  if (projChart) { projChart.destroy(); projChart = null; }
+
+  if (!age || !rate) {
+    el.innerHTML = '<div class="proj-hint">请填写当前年龄和预期年化收益率</div>';
+    return;
+  }
+
+  const principal = totalDeployed();
+  if (!principal) {
+    el.innerHTML = '<div class="proj-hint">还没有投入记录，添加买入记录后再来看</div>';
+    return;
+  }
+
+  const r          = rate / 100;
+  const endAge     = 70;
+  const milestones = [40, 50, 60, 65, 70].filter(a => a > age);
+  const ages       = Array.from({ length: endAge - age + 1 }, (_, i) => age + i);
+  const values     = ages.map(a => +(principal * Math.pow(1 + r, a - age)).toFixed(2));
+
+  // milestone summary chips
+  const chips = milestones.map(ma => {
+    const fv = principal * Math.pow(1 + r, ma - age);
+    return `<div style="text-align:center;">
+      <div style="font-size:10px;color:var(--muted);">${ma} 岁</div>
+      <div style="font-size:14px;font-weight:700;color:var(--accent)">${fmt$(fv)}</div>
+    </div>`;
+  }).join('<div style="width:1px;background:var(--border);"></div>');
+
+  const last = principal * Math.pow(1 + r, endAge - age);
+  el.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">
+      本金 <strong style="color:var(--text)">${fmt$(principal)}</strong> · 年化 <strong style="color:var(--text)">${rate}%</strong> · 到 ${endAge} 岁增长 <strong style="color:var(--accent)">${(last/principal).toFixed(1)}x</strong>
+    </div>
+    <div style="display:flex;gap:20px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">${chips}</div>`;
+
+  const ctx = document.getElementById('proj-chart').getContext('2d');
+  projChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ages,
+      datasets: [{
+        label: '预期总价值',
+        data: values,
+        borderColor: '#3b5bdb',
+        backgroundColor: 'rgba(59,91,219,0.06)',
+        borderWidth: 2,
+        pointRadius: ages.map(a => milestones.includes(a) ? 5 : 0),
+        pointBackgroundColor: '#3b5bdb',
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: ctx => `${ctx[0].label} 岁`,
+            label: ctx => `预期价值：${fmt$(ctx.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: '年龄', color: '#78716c', font: { size: 10 } },
+          ticks: { color: '#78716c', font: { size: 10 } },
+          grid: { color: '#e4ddd0' }
+        },
+        y: {
+          ticks: {
+            color: '#78716c', font: { size: 10 },
+            callback: v => v >= 1e6 ? '$' + (v/1e6).toFixed(1) + 'M' : '$' + (v/1e3).toFixed(0) + 'K'
+          },
+          grid: { color: '#e4ddd0' }
+        }
+      }
+    }
+  });
+}
+
+// ─── Render ──────────────────────────────────────────────
+function render() {
+  renderSummary();
+  renderGoalInputs();
+  renderTickerCards();
+  renderAccountTabs();
+  renderTable();
+  if (activeTab === 'proj') renderProjection();
+}
+
+const ACCT_COLORS = { 'Roth IRA': '#3b5bdb', 'Traditional IRA': '#0891b2', 'HSA': '#7c3aed', 'Brokerage': '#d97706' };
+
+function renderSummary() {
+  // ── overall numbers ──
+  const total  = totalDeployed();
+  const target = goals.overall;
+  const remain = Math.max(0, target - total);
+  const pct    = Math.min(100, total / target * 100);
+
+  document.getElementById('sum-deployed').textContent = fmt$(total);
+  document.getElementById('sum-target').textContent   = fmt$(target);
+  document.getElementById('sum-remain').textContent   = fmt$(remain);
+  document.getElementById('sum-pct').textContent      = pct.toFixed(1) + '%';
+  document.getElementById('sum-fill').style.width     = pct.toFixed(1) + '%';
+
+  // ── recent 30 days + count ──
+  const now    = new Date();
+  const cutoff = new Date(now - 30*24*60*60*1000).toISOString().slice(0,10);
+  const recent = transactions.filter(t => t.date >= cutoff).reduce((s,t) => s + t.shares*t.price, 0);
+  document.getElementById('sum-recent').textContent = fmt$(recent);
+  document.getElementById('sum-count').textContent  = transactions.length;
+
+  // ── per-account blocks ──
+  const acctEl = document.getElementById('summary-accounts');
+  acctEl.innerHTML = goals.accounts.map(a => {
+    const tracked  = deployedByAccount(a.name);
+    const initial  = a.initialDeployed || 0;
+    const amt      = tracked + initial;
+    const aPct     = Math.min(100, (amt / a.target) * 100);
+    const aRemain  = Math.max(0, a.target - amt);
+    const color    = a.color || ACCT_COLORS[a.name] || '#a8a29e';
+    return `
+      <div class="acct-block">
+        <div class="ab-head">
+          <div class="ab-name" style="color:${color}">${a.name}</div>
+          <div class="ab-pct"  style="color:${color}">${aPct.toFixed(0)}%</div>
+        </div>
+        <div class="ab-bar-wrap">
+          <div class="ab-bar-fill" style="width:${aPct.toFixed(1)}%;background:${color}"></div>
+        </div>
+        <div class="ab-nums">
+          <span class="done" style="color:${color}">${fmt$(amt)}</span>
+          <span class="target">/ ${fmt$(a.target)}</span>
+          <span class="target">剩 ${fmt$(aRemain)}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  // ── insight note ──
+  if (!transactions.length) {
+    document.getElementById('ins-note').textContent = '添加第一笔记录，查看买入价格与均价的关系。';
+    return;
+  }
+  const sorted = [...transactions].sort((a,b) => b.date.localeCompare(a.date));
+  const latest = sorted[0];
+  const s    = tickerSummary(latest.ticker);
+  const diff = (latest.price - s.avgCost) / s.avgCost * 100;
+  const sign = diff >= 0 ? '+' : '';
+  const note = Math.abs(diff) < 2
+    ? `最新：${latest.ticker} @ ${fmt$(latest.price)} · ${latest.date} — 与均价基本持平`
+    : diff > 0
+      ? `最新：${latest.ticker} @ ${fmt$(latest.price)} · ${latest.date} — 高于均价 ${sign}${diff.toFixed(1)}%，但这是 ${s.txCount} 次买入的均价，这只是其中一次`
+      : `最新：${latest.ticker} @ ${fmt$(latest.price)} · ${latest.date} — 低于均价 ${diff.toFixed(1)}%，低位加仓`;
+  document.getElementById('ins-note').textContent = note;
+}
+
+function renderTickerCards() {
+  const el = document.getElementById('ticker-cards');
+  const t = tickers();
+  if (!t.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;">暂无记录</div>'; return; }
+  el.innerHTML = t.map(ticker => {
+    const s       = tickerSummary(ticker);
+    const cur     = currentPrices[ticker];
+    const hasCur  = cur != null && cur > 0;
+    const pnlPct  = hasCur ? ((cur - s.avgCost) / s.avgCost * 100) : null;
+    const pnlAmt  = hasCur ? ((cur - s.avgCost) * s.shares) : null;
+    const pnlSign = pnlPct >= 0 ? '+' : '';
+    const pnlColor = pnlPct >= 0 ? 'var(--accent)' : 'var(--red)';
+    const pnlStr  = hasCur
+      ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+           <span style="font-size:10px;color:var(--muted)">未实现盈亏</span>
+           <span style="font-size:12px;font-weight:700;color:${pnlColor}">${pnlSign}${pnlPct.toFixed(2)}% (${pnlAmt>=0?'+':''}${fmt$(pnlAmt)})</span>
+         </div>`
+      : '';
+
+    return `
+      <div style="background:var(--surface);border:1px solid ${activeTicker===ticker?'var(--accent)':'var(--border)'};border-radius:7px;padding:11px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;cursor:pointer;" onclick="setTicker('${ticker}')">
+          <div style="font-size:14px;font-weight:700;">${ticker}</div>
+          <span style="font-size:10px;color:var(--muted);">${s.txCount} 笔</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px;">
+          <div><div style="font-size:10px;color:var(--muted)">均价</div><div style="font-size:12px;font-weight:600;color:var(--accent)">${fmt$(s.avgCost)}</div></div>
+          <div><div style="font-size:10px;color:var(--muted)">持股</div><div style="font-size:12px;font-weight:600">${fmtShares(s.shares)} 股</div></div>
+        </div>
+        <div style="display:flex;gap:5px;align-items:center;">
+          <input type="number" min="0" step="0.01" placeholder="当前市价"
+            value="${hasCur ? cur : ''}"
+            style="flex:1;font-size:12px;padding:5px 8px;"
+            id="cp-${ticker}"
+            onclick="event.stopPropagation()"
+            onkeydown="if(event.key==='Enter') savePrice('${ticker}')">
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();savePrice('${ticker}')" style="white-space:nowrap;">保存</button>
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();fetchPrice('${ticker}')" style="white-space:nowrap;" title="从 Yahoo Finance 获取">↻</button>
+        </div>
+        ${pnlStr}
+      </div>`;
+  }).join('');
+}
+
+function savePrice(ticker) {
+  const val = parseFloat(document.getElementById('cp-' + ticker).value);
+  if (!val || val <= 0) { delete currentPrices[ticker]; }
+  else { currentPrices[ticker] = val; }
+  savePrices();
+  render();
+}
+
+async function fetchPrice(ticker) {
+  const btn = event.target;
+  btn.textContent = '…';
+  btn.disabled = true;
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+    const res  = await fetch(url, { mode: 'cors' });
+    const json = await res.json();
+    const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    if (!price) throw new Error('no price');
+    currentPrices[ticker] = price;
+    savePrices();
+    render();
+  } catch {
+    btn.textContent = '↻';
+    btn.disabled = false;
+    alert(`无法自动获取 ${ticker} 的价格（CORS 限制），请手动输入。`);
+  }
+}
+
+function renderAccountTabs() {
+  const el = document.getElementById('acct-tabs');
+  const a = accounts();
+  if (!a.length) { el.innerHTML = ''; return; }
+  el.innerHTML = ['ALL', ...a].map(acct =>
+    `<button class="tab ${activeAccount===acct?'active':''}" onclick="setAccount('${acct}')">${acct}</button>`).join('');
+}
+
+function filteredTx() {
+  let txs = activeTicker  !== 'ALL' ? transactions.filter(t => t.ticker  === activeTicker)  : transactions;
+  txs =     activeAccount !== 'ALL' ? txs.filter(t => (t.account||'Unknown') === activeAccount) : txs;
+  return txs;
+}
+
+function renderTable() {
+  const el = document.getElementById('table-body');
+  const filtered = [...filteredTx()].sort((a,b) => b.date.localeCompare(a.date));
+  document.getElementById('table-title').textContent = `所有记录（${filtered.length} 笔）`;
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty-state"><strong>还没有记录</strong>在左侧填写第一笔买入记录</div>';
+    return;
+  }
+
+  const acctColors = ACCT_COLORS;
+  el.innerHTML = `
+    <table>
+      <thead>
+        <tr><th>日期</th><th>标的</th><th>账户</th><th>股数</th><th>买入价</th><th>总额</th><th>备注</th><th></th></tr>
+      </thead>
+      <tbody>
+        ${filtered.map(t => {
+          const acctColor = acctColors[t.account] || '#a8a29e';
+          return `
+            <tr>
+              <td>${t.date}</td>
+              <td><strong>${t.ticker}</strong></td>
+              <td><span style="font-size:10px;font-weight:600;color:${acctColor}">${t.account || '—'}</span></td>
+              <td>${fmtShares(t.shares)}</td>
+              <td>${fmt$(t.price)}</td>
+              <td>${fmt$(t.shares * t.price)}</td>
+              <td style="color:var(--muted);font-size:11px;">${t.note || '—'}</td>
+              <td><button class="delete-btn" onclick="deleteTransaction('${t.id}')" title="删除">×</button></td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ─── Init ─────────────────────────────────────────────────
+document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
+
+load();
+render();
+</script>
+</body>
+</html>
