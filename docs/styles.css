@@ -567,6 +567,7 @@ nav {
 }
 .plan-period { font-size: 14px; color: var(--text-dim); }
 .plan-desc { font-size: 13px; color: var(--text-muted); line-height: 1.55; }
+.plan-contact { font-size: 13px; color: var(--text-dim); text-align: center; margin-top: -8px; }
 .plan-btn {
   display: block;
   text-align: center;
